@@ -4,14 +4,10 @@
 /*
  * Keep the application-side partition macros aligned with the gccout map.
  *
- * UniRTOS SDK 1.0.5 can be paired with an older protected partition header
- * even when a newer gccout is selected. Include the SDK header first so all
- * of its normal definitions remain available, reject unknown layouts, then
- * override only the three values changed by the QuecPython CUST layout.
-*
-* The SDK-integrated build also synchronizes the SDK header itself (see
-* qpy_sync_sdk_partition_layout in CMakeLists.txt); this include keeps a
-* per-translation-unit guarantee for the file that consumes the CUST macros.
+ * Include the SDK header first so its normal definitions remain available,
+ * reject unknown layouts, then override only the values consumed by the
+ * QuecPython CUST filesystem translation unit. This component never changes
+ * SDK source files.
  */
 #include "unirtos_mem_partion_718pm_open.h"
 

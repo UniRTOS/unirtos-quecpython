@@ -47,7 +47,7 @@ unirtos-cli build
 
 No application-side initialization call is required. `UNIRTOS_APP_EXPORT(700, "quecpython", quecpython_init)` places the startup entry in `.unirtos_app_init`, so the UniRTOS application registry starts QuecPython automatically.
 
-The `EG800ZCN_LA` board directory also carries the 288 KiB `customer_app2.bin` image. After the SDK creates its base package, the component automatically repackages it with this image as `PKGFLX_CUST` and copies the raw image to the release directory. This does not require staging an image under `qos_tools`.
+The `EG800ZCN_LA` board directory also carries the 288 KiB `customer_app2.bin` first-boot LittleFS image. Its SHA-256 is recorded in [`boards/EG800ZCN_LA/customer_app2.sha256`](boards/EG800ZCN_LA/customer_app2.sha256). After the SDK creates its base package, the component automatically repackages it with this image as `PKGFLX_CUST` and copies the raw image to the release directory. This does not require staging an image under `qos_tools`.
 
 The component never modifies SDK source files. Its EG800ZCN_LA partition overlay applies the required OpenCPU `0x90000`, CUST `0x48000`, and LFS `0x79000` values only while compiling the QuecPython port; packaging also rejects a `gccout` that does not declare that layout.
 
@@ -58,10 +58,9 @@ Include `quecpython.h` and link the application against `unirtos-quecpython` whe
 ```c
 void quecpython_init(void);
 int quecpython_is_running(void);
-int quecpython_exec_string(const char *code);
 ```
 
-`quecpython_init()` is idempotent. `quecpython_exec_string()` returns `-1` when the runtime is not ready or the input is invalid.
+`quecpython_init()` is idempotent. `quecpython_is_running()` becomes true only after the UART7 REPL, `/usr` filesystem, and startup scripts have initialized.
 
 ## Runtime profile
 
@@ -69,7 +68,7 @@ int quecpython_exec_string(const char *code);
 - Python GC heap: 512 KiB.
 - Main task stack: 32 KiB.
 - Python thread stack: 8 KiB.
-- User filesystem: LittleFS, with a separate 288 KiB initial CUST image.
+- User filesystem: LittleFS, with a separate 288 KiB initial CUST image. A mount failure preserves existing partition data by default; define `MICROPY_QPY_USRFS_AUTO_FORMAT=1` only for an explicitly authorized recovery build.
 - Startup and filesystem bootstrap: frozen `_boot.py` plus the board-selected frozen module set.
 
 The exact linked code/data size and free runtime heap must be recorded from the release build and target smoke test; the values above are configuration budgets, not measured consumption.
@@ -104,12 +103,10 @@ All QSTR, frozen-module, copied upstream, and generated header artifacts are emi
 
 ## Release checks
 
-Run `powershell -ExecutionPolicy Bypass -File scripts/verify-source.ps1` before publishing. A release tag also requires two clean, reproducible builds, map-file confirmation of `__unirtos_app_init_quecpython_init`, the UART7/device smoke matrix, and an end-to-end project created from the demo manifest.
+Run `powershell -ExecutionPolicy Bypass -File scripts/verify-source.ps1` before publishing. A release tag also requires two clean, reproducible builds, map-file confirmation of `__unirtos_app_init_quecpython_init`, the UART7/device smoke matrix, and an end-to-end project created from the demo manifest. The UART import regression script is [`tests/compat_smoke.py`](tests/compat_smoke.py); it is intentionally not frozen into release firmware.
 
 Before flashing, verify each FlashTool download configuration against the packaged images: `powershell -ExecutionPolicy Bypass -File scripts/verify-flash-config.ps1 -IniPath <quec_download_*.ini> -ImageDataJson <release>/imagedata.json`. The check fails when a `pkgflx*` burn address does not match the address recorded for its image.
 
-In the authorized E-SafeNet workspace, use a low build parallelism if a protected SDK/source file is ever presented to GCC as raw container bytes. The validation run was stable with `unirtos-cli build -j 1`.
-
 ## Licenses
 
-MicroPython is distributed under the MIT license in `third_party/micropython/LICENSE`. LittleFS is BSD-3-Clause licensed; its source files retain the original SPDX and copyright notices. See `THIRD_PARTY_NOTICES.md`.
+This repository's QuecPython port, board configuration, demo integration, and project scripts are MIT licensed under [`LICENSE`](LICENSE). MicroPython is distributed under its own MIT license in `third_party/micropython/LICENSE`. LittleFS is BSD-3-Clause licensed; its source files retain the original SPDX and copyright notices. See `THIRD_PARTY_NOTICES.md`.

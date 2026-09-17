@@ -12,6 +12,7 @@
 
 static qosa_sem_t qpy_stdin_sem = QOSA_NULL;
 static qosa_uart_port_number_e qpy_stdio_port = (qosa_uart_port_number_e)CONFIG_QPY_REPL_PORT;
+static volatile int qpy_stdio_failed;
 static volatile int qpy_stdio_ready;
 static uint32_t qpy_random_state = 0x51f15e2d;
 
@@ -64,16 +65,22 @@ static int qpy_stdio_read_char(unsigned char *ch) {
 }
 
 void mp_hal_stdio_init(void) {
-    if (qpy_stdio_ready) {
+    if (qpy_stdio_ready || qpy_stdio_failed) {
         return;
     }
 
-    qosa_sem_create_ex(&qpy_stdin_sem, 0, 8);
+    if (qosa_sem_create_ex(&qpy_stdin_sem, 0, 8) != QOSA_OK) {
+        qpy_stdio_failed = 1;
+        return;
+    }
 
     qosa_uart_status_monitor_t monitor = {0};
     monitor.callback = qpy_uart_callback;
     monitor.event_mask = QOSA_UART_EVENT_RX_INDICATE;
-    qosa_uart_register_cb(qpy_stdio_port, &monitor);
+    if (qosa_uart_register_cb(qpy_stdio_port, &monitor) != QOSA_UART_SUCCESS) {
+        qpy_stdio_failed = 1;
+        return;
+    }
 
     qosa_uart_config_t cfg = {0};
     cfg.baudrate = CONFIG_QPY_REPL_BAUD;
@@ -81,10 +88,21 @@ void mp_hal_stdio_init(void) {
     cfg.stop_bit = QOSA_UART_STOP_1;
     cfg.parity_bit = QOSA_UART_PARITY_NONE;
     cfg.flow_ctrl = QOSA_FC_NONE;
-    qosa_uart_ioctl(qpy_stdio_port, QOSA_UART_IOCTL_SET_DCB_CFG, &cfg);
-    qosa_uart_open(qpy_stdio_port);
+    if (qosa_uart_ioctl(qpy_stdio_port, QOSA_UART_IOCTL_SET_DCB_CFG, &cfg) != QOSA_UART_SUCCESS) {
+        qpy_stdio_failed = 1;
+        return;
+    }
+    qosa_uart_error_e open_rc = qosa_uart_open(qpy_stdio_port);
+    if (open_rc != QOSA_UART_SUCCESS && open_rc != QOSA_UART_OPEN_REPEAT_ERR) {
+        qpy_stdio_failed = 1;
+        return;
+    }
 
     qpy_stdio_ready = 1;
+}
+
+int qpy_stdio_is_ready(void) {
+    return qpy_stdio_ready;
 }
 
 int mp_hal_stdin_rx_chr(void) {

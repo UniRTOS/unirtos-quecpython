@@ -18,6 +18,7 @@ extern void qpy_machine_uart_reset_all(void);
 #include "qosa_virtual_file.h"
 #include "unirtos_app_init_registry.h"
 #include "quecpython.h"
+#include "mphalport.h"
 #include "qpy_path.h"
 #include "qpy_usrfs.h"
 
@@ -84,12 +85,14 @@ static void qpy_main(void *arg) {
     mp_stack_set_limit(sizeof(qpy_main_stack) - 1024);
 
     mp_hal_stdio_init();
+    if (!qpy_stdio_is_ready()) {
+        mp_printf(&mp_plat_print, "QuecPython UART7 REPL initialization failed.\r\n");
+        return;
+    }
 
     if (qpy_usrfs_init() != 0) {
         mp_printf(&mp_plat_print, "QuecPython /usr CUST filesystem initialization failed.\r\n");
-        for (;;) {
-            qosa_task_sleep_ms(1000);
-        }
+        return;
     }
 
     for (;;) {
@@ -97,7 +100,6 @@ static void qpy_main(void *arg) {
         gc_init(qpy_heap, qpy_heap + sizeof(qpy_heap));
         mp_thread_init();
         mp_init();
-        qpy_runtime_ready = 1;
         qpy_init_sys_path();
         qpy_restore_softreset_vars();
         readline_init0();
@@ -108,6 +110,7 @@ static void qpy_main(void *arg) {
         qpy_run_app_fota_boot();
         pyexec_file_if_exists("/usr/main.py");
         mp_printf(&mp_plat_print, "Entering friendly REPL. Use Ctrl-D to soft reset.\r\n");
+        qpy_runtime_ready = 1;
         pyexec_friendly_repl();
 
         mp_printf(&mp_plat_print, "\r\nMPY: soft reboot\r\n");
@@ -121,35 +124,26 @@ static void qpy_main(void *arg) {
 
 void quecpython_init(void) {
     if (qpy_main_task != QOSA_NULL) {
+        printf("QuecPython runtime is already initialized.\r\n");
         return;
     }
     void *tcb = qosa_malloc(qosa_task_get_tcb_min_size());
     if (tcb == QOSA_NULL) {
+        printf("QuecPython task control block allocation failed.\r\n");
         return;
     }
-    (void)qosa_task_create_static(&qpy_main_task, qpy_main_stack, sizeof(qpy_main_stack), tcb,
-        qosa_task_get_tcb_min_size(), QOSA_PRIORITY_NORMAL, "quecpython", qpy_main, QOSA_NULL);
+    qosa_task_t task = QOSA_NULL;
+    if (qosa_task_create_static(&task, qpy_main_stack, sizeof(qpy_main_stack), tcb,
+            qosa_task_get_tcb_min_size(), QOSA_PRIORITY_NORMAL, "quecpython", qpy_main, QOSA_NULL) != QOSA_ERROR_OK) {
+        qosa_free(tcb);
+        printf("QuecPython runtime task creation failed.\r\n");
+        return;
+    }
+    qpy_main_task = task;
 }
 
 int quecpython_is_running(void) {
     return qpy_main_task != QOSA_NULL && qpy_runtime_ready;
-}
-
-int quecpython_exec_string(const char *code) {
-    if (code == QOSA_NULL || !qpy_runtime_ready) {
-        return -1;
-    }
-
-    nlr_buf_t nlr;
-    if (nlr_push(&nlr) == 0) {
-        mp_lexer_t *lex = mp_lexer_new_from_str_len(MP_QSTR__lt_string_gt_, code, strlen(code), 0);
-        mp_parse_compile_execute(lex, MP_PARSE_FILE_INPUT, mp_globals_get(), mp_locals_get());
-        nlr_pop();
-        return 0;
-    }
-
-    mp_obj_print_exception(&mp_plat_print, MP_OBJ_FROM_PTR(nlr.ret_val));
-    return -1;
 }
 
 void gc_collect(void) {
