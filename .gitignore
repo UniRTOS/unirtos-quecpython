@@ -1,0 +1,16 @@
+/build/
+/qos_build/
+/libraries/
+/.venv/
+/.idea/
+/.vscode/
+__pycache__/
+*.py[cod]
+*.o
+*.obj
+*.a
+*.elf
+*.map
+*.log
+version.txt
+
