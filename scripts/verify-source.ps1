@@ -6,17 +6,36 @@ param(
 $ErrorActionPreference = 'Stop'
 $resolvedRoot = (Resolve-Path -LiteralPath $Root).Path
 $failures = [System.Collections.Generic.List[string]]::new()
+$vendorMarker = 'E-Safe' + 'Net'
+$lockMarker = 'LO' + 'CK'
 $legacyMarkers = @(
     ('G:' + '\Workspace'),
     ('pythonSDK_' + 'UnirtosV1.1'),
     ('Temp' + '\Felix')
 )
 
+function Test-ContainerHeader([string]$Path) {
+    $stream = [System.IO.File]::OpenRead($Path)
+    try {
+        $buffer = New-Object byte[] ([Math]::Min(128, $stream.Length))
+        [void]$stream.Read($buffer, 0, $buffer.Length)
+        $header = [System.Text.Encoding]::ASCII.GetString($buffer)
+        return $header.Contains($vendorMarker) -and $header.Contains($lockMarker)
+    }
+    finally {
+        $stream.Dispose()
+    }
+}
+
 foreach ($file in Get-ChildItem -LiteralPath $resolvedRoot -Recurse -File -Force) {
     $relative = $file.FullName.Substring($resolvedRoot.Length + 1)
 
     if ($file.Extension -eq '.pyc' -or $relative -match '(^|[\\/])__pycache__([\\/]|$)') {
         $failures.Add("Python cache artifact: $relative")
+    }
+
+    if (Test-ContainerHeader $file.FullName) {
+        Write-Warning "Authorized protected source container: $relative"
     }
 
     if ($file.Length -le 8MB -and $file.FullName -ne $PSCommandPath) {

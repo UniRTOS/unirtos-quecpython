@@ -194,9 +194,6 @@ static int qpy_usrfs_close(void *ctx, int fd) {
 
 static qosa_ssize_t qpy_usrfs_vfs_read(void *ctx, int fd, void *dst, qosa_size_t size) {
     (void)ctx;
-    if (dst == QOSA_NULL && size != 0) {
-        return -EINVAL;
-    }
     qpy_usrfs_lock();
     qpy_usrfs_file_t *slot = qpy_usrfs_file(fd);
     lfs_ssize_t rc = slot == QOSA_NULL ? LFS_ERR_BADF
@@ -207,9 +204,6 @@ static qosa_ssize_t qpy_usrfs_vfs_read(void *ctx, int fd, void *dst, qosa_size_t
 
 static qosa_ssize_t qpy_usrfs_vfs_write(void *ctx, int fd, const void *data, qosa_size_t size) {
     (void)ctx;
-    if (data == QOSA_NULL && size != 0) {
-        return -EINVAL;
-    }
     qpy_usrfs_lock();
     qpy_usrfs_file_t *slot = qpy_usrfs_file(fd);
     lfs_ssize_t rc = slot == QOSA_NULL ? LFS_ERR_BADF
@@ -271,10 +265,6 @@ static int qpy_usrfs_fstat(void *ctx, int fd, struct qosa_vfs_stat_t *st) {
 static int qpy_usrfs_ftruncate(void *ctx, int fd, long length) {
     (void)ctx;
     qpy_usrfs_lock();
-    if (length < 0) {
-        qpy_usrfs_unlock();
-        return -EINVAL;
-    }
     qpy_usrfs_file_t *slot = qpy_usrfs_file(fd);
     int rc = slot == QOSA_NULL ? LFS_ERR_BADF
         : lfs_file_truncate(&qpy_usrfs_lfs, &slot->file, length);
@@ -453,9 +443,6 @@ static int qpy_usrfs_fstatvfs(void *ctx, int fd, struct qosa_vfs_statvfs_t *buf)
 
 static qosa_ssize_t qpy_usrfs_file_write(void *ctx, const char *path,
     const void *data, qosa_size_t size) {
-    if (path == QOSA_NULL || (data == QOSA_NULL && size != 0)) {
-        return -EINVAL;
-    }
     int fd = qpy_usrfs_open(ctx, path, QOSA_VFS_O_WRONLY | QOSA_VFS_O_CREAT | QOSA_VFS_O_TRUNC, 0);
     if (fd < 0) {
         return fd;
@@ -529,16 +516,11 @@ int qpy_usrfs_init(void) {
 
     int rc = lfs_mount(&qpy_usrfs_lfs, &qpy_usrfs_config);
     if (rc != 0) {
-#if CONFIG_QPY_USRFS_AUTO_FORMAT
         printf("[qpy_usrfs] mount failed (%d), formatting CUST partition\r\n", rc);
         rc = lfs_format(&qpy_usrfs_lfs, &qpy_usrfs_config);
         if (rc == 0) {
             rc = lfs_mount(&qpy_usrfs_lfs, &qpy_usrfs_config);
         }
-#else
-        printf("[qpy_usrfs] mount failed (%d), preserving CUST partition\r\n", rc);
-        return rc;
-#endif
     }
     if (rc != 0) {
         printf("[qpy_usrfs] CUST LittleFS initialization failed: %d\r\n", rc);
