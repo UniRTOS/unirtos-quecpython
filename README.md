@@ -1,59 +1,108 @@
 # unirtos-quecpython
 
-QuecPython external component for UniRTOS. The component packages the MicroPython runtime, the Quectel UniRTOS port, board configuration, frozen Python modules, and LittleFS into one independently versioned static library.
+[中文](README.zh.md) | English
 
-## Version matrix
+`unirtos-quecpython` is the independently versioned UniRTOS library that provides the QuecPython runtime for EG800ZCN_LA applications. Use it through the UniRTOS library workflow; application and demo repositories should declare the dependency instead of copying the runtime source.
 
-| Item | Version |
+## Feature Description
+
+The library packages the following as a single static library:
+
+- MicroPython `v1.28.0` and the Quectel UniRTOS port
+- QuecPython C modules, QOSA wrappers, QSTR generation, and frozen modules
+- LittleFS support and the initial `customer_app2.bin` CUST image
+- The `EG800ZCN_LA` board configuration and partition overlay
+
+The runtime registers `quecpython_init()` in `.unirtos_app_init`; an application that declares this library does not create a second MicroPython task or call the initializer itself. It also does not provide product application code, peripheral examples, an LCD driver, or another board profile. Those belong in a demo or product repository.
+
+## Compatibility
+
+| Item | Supported version |
 | --- | --- |
-| Component | `1.1.0` |
-| MicroPython | `v1.28.0` |
+| Library | `1.1.0` |
+| MicroPython baseline | `v1.28.0` |
 | UniRTOS SDK | `1.0.5` |
 | unirtos-cli | `1.0.20` |
-| Supported board | `EG800ZCN_LA` |
+| Board | `EG800ZCN_LA` |
 
-Only `EG800ZCN_LA` is accepted by the v1.1.0 CMake configuration. The component is compiled as the `unirtos-quecpython` target; `quecpython` remains as a CMake alias for source compatibility.
+The current library accepts only `EG800ZCN_LA`. The actual CMake target is `unirtos-quecpython`; `quecpython` remains a compatibility alias.
 
-## Use from an application
+## Quick Start
 
-Declare the component in `env_config.json`:
+### 1. Install the UniRTOS toolchain
+
+- [Development Preparation](https://www.quectel.com.cn/unirtos/docs?docs_page=快速上手/开发准备/开发准备.html)
+- [Install the Cross-Compilation Toolchain](https://www.quectel.com.cn/unirtos/docs?docs_page=快速上手/环境搭建/环境搭建.html)
+- Install Python 3, Git, and `unirtos-cli`
+
+Confirm that the CLI is available:
+
+```bash
+python --version
+git --version
+unirtos-cli version
+```
+
+### 2. Declare the library in an application
+
+Add the library to the application's `env_config.json`:
 
 ```json
 {
-  "build": {
-    "module": "EG800ZCN_LA"
-  },
-  "sdk": {
-    "version": "1.0.5"
-  },
+  "build": { "module": "EG800ZCN_LA" },
+  "sdk": { "version": "1.0.5" },
   "libraries": {
     "list": [
-      {
-        "name": "unirtos-quecpython",
-        "version": "1.1.0"
-      }
+      { "name": "unirtos-quecpython", "version": "1.1.0" }
     ]
   }
 }
 ```
 
-Then run:
+Then fetch the SDK and library and build the application:
 
-```text
+```bash
 unirtos-cli env-setup
-unirtos-cli clean
 unirtos-cli build
 ```
 
-No application-side initialization call is required. `UNIRTOS_APP_EXPORT(700, "quecpython", quecpython_init)` places the startup entry in `.unirtos_app_init`, so the UniRTOS application registry starts QuecPython automatically.
+For an end-to-end reference project, use [`unirtos-quecpython-demos`](https://github.com/UniRTOS/unirtos-quecpython-demos):
 
-The `EG800ZCN_LA` board directory also carries the 288 KiB `customer_app2.bin` image. After the SDK creates its base package, the component automatically repackages it with this image as `PKGFLX_CUST` and copies the raw image to the release directory. This does not require staging an image under `qos_tools`.
+```bash
+unirtos-cli ls-demos
+unirtos-cli new -r unirtos-quecpython-demos -v 1.0.0
+cd unirtos-quecpython-demos-1.0.0
+unirtos-cli env-setup
+unirtos-cli build
+```
 
-The component never modifies SDK source files. Its EG800ZCN_LA partition overlay applies the required OpenCPU `0x90000`, CUST `0x48000`, and LFS `0x79000` values only while compiling the QuecPython port; packaging also rejects a `gccout` that does not declare that layout.
+## Build and Packaging Notes
+
+The base `gccout.7z` used with this library must declare the following flash layout: OpenCPU `0x90000`, CUST `0x48000`, and LFS `0x79000`. Configuration stops with a clear error if the archive does not match.
+
+When replacing `gccout.7z`, remove the extracted cache before rebuilding:
+
+```bash
+unirtos-cli clean
+unirtos-cli build -m EG800ZCN_LA -v <firmware-version>
+```
+
+`-m` selects the board and `-v` names the resulting firmware release. They do not change the library's supported SDK or board.
+
+The release directory is `qos_build/release/<firmware-version>/`. It includes `ap_application.bin`, `customer_app2.bin`, `at_command.hbinpkg`, and the FlashTool download configuration. The component adds the CUST image to the SDK package as `PKGFLX_CUST`; no image needs to be copied into `qos_tools`.
+
+## Runtime Profile
+
+- UART7 REPL at 115200 baud
+- 512 KiB Python GC heap, 32 KiB main task stack, and 8 KiB Python thread stack
+- LittleFS user filesystem with a separate 288 KiB initial CUST image
+- Frozen `_boot.py` and the board-selected frozen module set
+
+The EG800ZCN_LA profile enables `uos`, `machine`, `utime`, `usocket`, `net`, `sim`, `dataCall`, `sms`, `fota`, `atcmd`, `misc`, `modem`, `ostimer`, `ujson`, `ubinascii`, `ustruct`, `urandom`, `uerrno`, `uselect`, `ucollections`, and `math`. Its `machine` integration covers Pin, Timer, RTC, WDT, ExtInt, Key, I2C, SPI, and UART. Audio, LVGL, camera, BLE/BT, Ethernet, GNSS, and Wi-Fi are outside this library's scope.
 
 ## Public C API
 
-Include `quecpython.h` and link the application against `unirtos-quecpython` when a direct dependency is needed.
+Include `quecpython.h` when an application needs to inspect runtime state:
 
 ```c
 void quecpython_init(void);
@@ -61,55 +110,43 @@ int quecpython_is_running(void);
 int quecpython_exec_string(const char *code);
 ```
 
-`quecpython_init()` is idempotent. `quecpython_exec_string()` returns `-1` when the runtime is not ready or the input is invalid.
+`quecpython_init()` is idempotent. The runtime starts automatically, so normal applications do not call it. `quecpython_exec_string()` returns `-1` before the runtime is ready or for invalid input; it must not be called directly from an arbitrary UniRTOS task without first marshalling work to the QuecPython runtime task.
 
-## Runtime profile
-
-- REPL: UART7 at 115200 baud.
-- Python GC heap: 512 KiB.
-- Main task stack: 32 KiB.
-- Python thread stack: 8 KiB.
-- User filesystem: LittleFS, with a separate 288 KiB initial CUST image.
-- Startup and filesystem bootstrap: frozen `_boot.py` plus the board-selected frozen module set.
-
-The exact linked code/data size and free runtime heap must be recorded from the release build and target smoke test; the values above are configuration budgets, not measured consumption.
-
-Reference software build (SDK 1.0.5, EG800ZCN_LA, minimal component-link application):
-
-| Artifact/section | Size |
-| --- | ---: |
-| Firmware `.text` | 559,204 bytes |
-| Firmware `.data` | 1,004 bytes |
-| Firmware `.bss` | 568,104 bytes |
-| Packaged firmware with CUST image | 3,423,933 bytes |
-
-These figures include the SDK, enabled QURL/file dependencies, the component, and the link application; they are not an isolated component-size measurement.
-
-## Module matrix
-
-The EG800ZCN_LA profile enables `uos`, `machine`, `utime`, `usocket`, `net`, `sim`, `dataCall`, `sms`, `fota`, `atcmd`, `misc`, `modem`, `ostimer`, `ujson`, `ubinascii`, `ustruct`, `urandom`, `uerrno`, `uselect`, `ucollections`, and `math`.
-
-The `machine` profile enables Pin, Timer, RTC, WDT, ExtInt, Key, I2C, SPI, and UART integration. Audio, LVGL, camera, BLE/BT, Ethernet, GNSS, and Wi-Fi are outside the v1.1.0 component scope.
-
-## Repository layout
+## Repository Layout
 
 ```text
 boards/EG800ZCN_LA/       board configuration, feature matrix, and CUST image
-include/                  stable public C API
+include/                  public C API
 ports/quectel/            Quectel port, QOSA wrappers, C modules, frozen modules
-third_party/micropython/  pinned MicroPython v1.28.0 source
+third_party/micropython/  pinned MicroPython source
 ```
 
-All QSTR, frozen-module, copied upstream, and generated header artifacts are emitted under the consuming application's build directory. The component does not reference the legacy SDK directory tree and does not call `add_apps_libraries()`.
+All copied upstream sources, QSTR files, frozen modules, and generated headers are emitted to the consuming application's build directory. The library does not modify UniRTOS SDK source files or call `add_apps_libraries()`.
 
-## Release checks
+## Common Commands
 
-Run `powershell -ExecutionPolicy Bypass -File scripts/verify-source.ps1` before publishing. A release tag also requires two clean, reproducible builds, map-file confirmation of `__unirtos_app_init_quecpython_init`, the UART7/device smoke matrix, and an end-to-end project created from the demo manifest.
+```bash
+# List available library versions
+unirtos-cli ls-libs
 
-Before flashing, verify each FlashTool download configuration against the packaged images: `powershell -ExecutionPolicy Bypass -File scripts/verify-flash-config.ps1 -IniPath <quec_download_*.ini> -ImageDataJson <release>/imagedata.json`. The check fails when a `pkgflx*` burn address does not match the address recorded for its image.
+# Refresh SDK and declared external libraries
+unirtos-cli env-setup
 
-In the authorized E-SafeNet workspace, use a low build parallelism if a protected SDK/source file is ever presented to GCC as raw container bytes. The validation run was stable with `unirtos-cli build -j 1`.
+# Remove build output and the extracted gccout cache
+unirtos-cli clean
+```
+
+## Technical Community
+
+Technical Community: https://forumschinese.quectel.com/c/66-category/66
+
+## Contribution Guidelines
+
+- Run `env-setup`, `build`, and `clean` before submitting a change.
+- Keep board, SDK, CLI, and MicroPython version changes explicit in this README.
+- Do not add generated build output or an SDK copy to this repository.
+- When changing the flash layout, CUST image, or runtime startup path, update the validation record and complete an EG800ZCN_LA hardware regression.
 
 ## Licenses
 
-MicroPython is distributed under the MIT license in `third_party/micropython/LICENSE`. LittleFS is BSD-3-Clause licensed; its source files retain the original SPDX and copyright notices. See `THIRD_PARTY_NOTICES.md`.
+MicroPython is MIT licensed in `third_party/micropython/LICENSE`. LittleFS is BSD-3-Clause licensed and retains its original SPDX and copyright notices. See `THIRD_PARTY_NOTICES.md` for details.
